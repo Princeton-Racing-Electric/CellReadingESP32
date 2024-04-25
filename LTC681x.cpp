@@ -57,8 +57,11 @@ void wakeup_idle(uint8_t total_ic) //Number of ICs in the system
 	{
 	   cs_low(CS_PIN);
 	   spi_read_byte(0xff);//Guarantees the isoSPI will be in ready mode
+     //delay_u(300);
 	   cs_high(CS_PIN);
+     delay_u(10);
 	}
+  delay_u(1000);
 }
 
 /* Generic wakeup command to wake the LTC681x from sleep state */
@@ -67,10 +70,11 @@ void wakeup_sleep(uint8_t total_ic) //Number of ICs in the system
 	for (int i =0; i<total_ic; i++)
 	{
 	   cs_low(CS_PIN);
-	   delay_u(300); // Guarantees the LTC681x will be in standby
+	   delay_u(1000); // Guarantees the LTC681x will be in standby
 	   cs_high(CS_PIN);
 	   delay_u(10);
 	}
+  delay_u(1000);
 }
 
 /* Generic function to write 68xx commands. Function calculates PEC for tx_cmd data. */

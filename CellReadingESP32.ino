@@ -10,11 +10,59 @@
 #define PWM 1
 #define SCTL 2
 
+const float VOLTAGES[]={
+  4.087373015,
+  4.085084739,
+  4.057627183,
+  4.030169509,
+  4.011864471,
+  3.999661035,
+  3.981355997,
+  3.963050843,
+  3.905084812,
+  3.828813626,
+  3.767796561,
+  3.709830298,
+  3.621355909,
+  3.557287927,
+  3.487118692,
+  3.410847507,
+  3.334576321,
+  3.221694711,
+  3.081355892,
+  3,
+};
+const float PERCENTAGE_CAPACITY[]={
+  1,
+  0.9992045768,
+  0.9896654491,
+  0.9770320806,
+  0.9621314476,
+  0.9465178241,
+  0.9270601624,
+  0.8759270414,
+  0.7826139264,
+  0.6959850776,
+  0.6184986922,
+  0.5371149754,
+  0.4418232198,
+  0.365716581,
+  0.2868030144,
+  0.2013033494,
+  0.1342668398,
+  0.07262271074,
+  0.02309610172,
+  0,
+};
+
 /*******************************************************************
   Setup Variables
   The following variables can be modified to configure the software.
 ********************************************************************/
-const uint8_t TOTAL_IC = 1;//!< Number of ICs in the daisy chain
+const uint8_t TOTAL_IC = 4;//!< Number of ICs in the daisy chain
+
+uint8_t iter=0;
+bool err=false;
 
 /********************************************************************
  ADC Command Configurations. See LTC681x.h for options
@@ -68,6 +116,8 @@ void setup() {
   pinMode(15, OUTPUT);
   start_spi();
   pinMode(12, INPUT_PULLUP);
+  pinMode(36, OUTPUT);
+  digitalWrite(36, LOW);
   LTC6813_init_cfg(TOTAL_IC, BMS_IC);
   LTC6813_init_cfgb(TOTAL_IC,BMS_IC);
   for (uint8_t current_ic = 0; current_ic<TOTAL_IC;current_ic++) 
@@ -79,6 +129,10 @@ void setup() {
   LTC6813_init_reg_limits(TOTAL_IC,BMS_IC);
   LTC6813_reset_crc_count(TOTAL_IC,BMS_IC);
   LTC6813_init_reg_limits(TOTAL_IC,BMS_IC);
+
+  wakeup_sleep(TOTAL_IC);
+  LTC6813_wrcfg(TOTAL_IC,BMS_IC);
+  LTC6813_wrcfgb(TOTAL_IC,BMS_IC);
 }
 
 void print_cells(){
@@ -96,27 +150,67 @@ void print_cells(){
     }
     Serial.println();
   }
-  Serial.println("\n");
 }
 void check_error(int error)
 {
   if (error == -1)
   {
+    err=true;
     Serial.println(F("A PEC error was detected in the received data"));
   }
 }
 
+float calculate_percentage(float cell_voltage){
+  uint8_t index_low=0;
+  for(; index_low<sizeof(VOLTAGES)-1; ++index_low){
+    if(VOLTAGES[index_low]>cell_voltage){
+      break;
+    }
+  }
+  return PERCENTAGE_CAPACITY[index_low]+(cell_voltage-VOLTAGES[index_low])*(PERCENTAGE_CAPACITY[index_low+1]-PERCENTAGE_CAPACITY[index_low])/(VOLTAGES[index_low+1]-VOLTAGES[index_low]);
+}
 
 void loop() {
   // put your main code here, to run repeatedly:
-  log_i("made it to loop");
-  delay(1000);
-  wakeup_idle(TOTAL_IC);
+  //log_i("made it to loop");
+  delay(250);
+  wakeup_sleep(TOTAL_IC);
   LTC6813_adcv(ADC_CONVERSION_MODE,ADC_DCP,CELL_CH_TO_CONVERT);
   LTC6813_pollAdc();
   wakeup_idle(TOTAL_IC);
   uint8_t error = LTC6813_rdcv(0, TOTAL_IC,BMS_IC);
   check_error(error);
-  print_cells();
+  iter=(iter+1)%4;
+  float sum_cells=0;
+  float min_cell=100;
+  for(uint8_t j=0; j<4; ++j){
+    for(uint8_t k=0; k<7; ++k){
+      float cell_val=BMS_IC[j].cells.c_codes[k]*0.0001;
+      if(cell_val>4.15){
+        err=true;
+      }
+      if(cell_val<3){
+        err=true;
+      }
+      sum_cells+=cell_val;
+      min_cell=min(min_cell, cell_val);
+    }
+  }
+  if(err){
+      digitalWrite(36, HIGH);
+  }
+  if(iter==0){
+      print_cells();
+      float mean_capacity=calculate_percentage(sum_cells/28);
+      float actual_capacity=calculate_percentage(min_cell);
+      Serial.print("Actual Capacity: ");
+      Serial.print(actual_capacity);
+      Serial.print(", Mean Capacity: ");
+      Serial.print(mean_capacity);
+      Serial.println();
+      Serial.println();
+      Serial.println();
+  }
+  
 }
 

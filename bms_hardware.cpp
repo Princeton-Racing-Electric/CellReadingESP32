@@ -46,7 +46,7 @@ SPIClass hspi(HSPI);
 
 void start_spi(){
   hspi.begin();
-  hspi.beginTransaction(SPISettings(200000, SPI_MSBFIRST, SPI_MODE3));
+  hspi.beginTransaction(SPISettings(100000, SPI_MSBFIRST, SPI_MODE3));
 }
 
 void cs_low(uint8_t pin)
