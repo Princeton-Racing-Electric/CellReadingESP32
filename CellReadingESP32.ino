@@ -2,6 +2,9 @@
 #include "LTC6813.h"
 #include "esp_log.h"
 #include "bms_hardware.h"
+#include "Preferences.h"
+
+#include <CAN.h>
 
 #define ENABLED 1
 #define DISABLED 0
@@ -109,15 +112,18 @@ bool FDRF = false; //!< Force Digital Redundancy Failure Bit
 bool DTMEN = true; //!< Enable Discharge Timer Monitor
 bool PSBITS[2]= {false,false}; //!< Digital Redundancy Path Selection//ps-0,1
 
+char* err_info;
 
+Preferences preferences;
 
 void setup() {
   Serial.begin(115200);
   pinMode(15, OUTPUT);
   start_spi();
   pinMode(12, INPUT_PULLUP);
-  pinMode(36, OUTPUT);
-  digitalWrite(36, LOW);
+  pinMode(27, OUTPUT);
+  digitalWrite(27, HIGH);
+  preferences.begin("my-app", false);
   LTC6813_init_cfg(TOTAL_IC, BMS_IC);
   LTC6813_init_cfgb(TOTAL_IC,BMS_IC);
   for (uint8_t current_ic = 0; current_ic<TOTAL_IC;current_ic++) 
@@ -129,7 +135,6 @@ void setup() {
   LTC6813_init_reg_limits(TOTAL_IC,BMS_IC);
   LTC6813_reset_crc_count(TOTAL_IC,BMS_IC);
   LTC6813_init_reg_limits(TOTAL_IC,BMS_IC);
-
   wakeup_sleep(TOTAL_IC);
   LTC6813_wrcfg(TOTAL_IC,BMS_IC);
   LTC6813_wrcfgb(TOTAL_IC,BMS_IC);
@@ -155,25 +160,79 @@ void check_error(int error)
 {
   if (error == -1)
   {
+
     err=true;
+    preferences.putString(0, "PEC Error");
+    err_info="PEC Error";
     Serial.println(F("A PEC error was detected in the received data"));
   }
 }
 
 float calculate_percentage(float cell_voltage){
   uint8_t index_low=0;
+  Serial.print("cell voltage: ");
+  Serial.println(cell_voltage);
   for(; index_low<sizeof(VOLTAGES)-1; ++index_low){
-    if(VOLTAGES[index_low]>cell_voltage){
+    if(VOLTAGES[index_low]<cell_voltage){
       break;
     }
   }
-  return PERCENTAGE_CAPACITY[index_low]+(cell_voltage-VOLTAGES[index_low])*(PERCENTAGE_CAPACITY[index_low+1]-PERCENTAGE_CAPACITY[index_low])/(VOLTAGES[index_low+1]-VOLTAGES[index_low]);
+  Serial.print("index: ");
+  Serial.println(index_low);
+  return PERCENTAGE_CAPACITY[index_low]+(cell_voltage-VOLTAGES[index_low])*(PERCENTAGE_CAPACITY[index_low-1]-PERCENTAGE_CAPACITY[index_low])/(VOLTAGES[index_low-1]-VOLTAGES[index_low]);
 }
 
+void recieveData() {
+  // try to parse packet
+  int packetSize = CAN.parsePacket();
+
+  if (packetSize) {
+    // received a packet
+    Serial.print("Received ");
+
+    if (CAN.packetExtended()) {
+      Serial.print("extended ");
+    }
+
+    if (CAN.packetRtr()) {
+      // Remote transmission request, packet contains no data
+      Serial.print("RTR ");
+    }
+
+    Serial.print("packet with id 0x");
+    Serial.print(CAN.packetId(), HEX);
+    if (CAN.packetRtr()) {
+      Serial.print(" and requested length ");
+      Serial.println(CAN.packetDlc());
+    } else {
+      Serial.print(" and length ");
+      Serial.println(packetSize);
+
+      // only print packet data for non-RTR packets
+      while (CAN.available()) {
+        Serial.print(CAN.read(), HEX);
+      }
+      Serial.println();
+    }
+
+    Serial.println();
+  }
+}
+
+
 void loop() {
+   
+  while(!CAN.begin(500E3)) {
+    Serial.println("Starting CAN failed!");
+    delay(100);
+  }
   // put your main code here, to run repeatedly:
   //log_i("made it to loop");
-  delay(250);
+  Serial.println("made it to loop");
+  uint32_t time=millis();
+  while((millis()-time)<250) {
+    recieveData();
+  }
   wakeup_sleep(TOTAL_IC);
   LTC6813_adcv(ADC_CONVERSION_MODE,ADC_DCP,CELL_CH_TO_CONVERT);
   LTC6813_pollAdc();
@@ -187,9 +246,13 @@ void loop() {
     for(uint8_t k=0; k<7; ++k){
       float cell_val=BMS_IC[j].cells.c_codes[k]*0.0001;
       if(cell_val>4.15){
+        preferences.putString("err", "overvolt");
+        err_info="overvolt";
         err=true;
       }
       if(cell_val<3){
+        preferences.putString("err", "undervolt");
+        err_info="undervolt";
         err=true;
       }
       sum_cells+=cell_val;
@@ -197,20 +260,46 @@ void loop() {
     }
   }
   if(err){
-      digitalWrite(36, HIGH);
+      digitalWrite(27, LOW);
+  } else {
+    digitalWrite(27, HIGH);
   }
   if(iter==0){
       print_cells();
       float mean_capacity=calculate_percentage(sum_cells/28);
       float actual_capacity=calculate_percentage(min_cell);
-      Serial.print("Actual Capacity: ");
+      Serial.print("Min Cell: ");
+      Serial.print(min_cell);
+      Serial.print(". Actual Capacity: ");
       Serial.print(actual_capacity);
       Serial.print(", Mean Capacity: ");
       Serial.print(mean_capacity);
+      Serial.print(", err: ");
+      Serial.print(err);
+      if(err==true){
+        Serial.print(", ");
+        Serial.print(err_info);
+      }
+      Serial.print(", Stored Error: ");
+      char * value;
+      preferences.getString("err", value, 10);
+      Serial.print(value);
       Serial.println();
       Serial.println();
       Serial.println();
   }
-  
+  /*
+  Serial.println("startig packet");
+  CAN.beginPacket(0x2FF);
+  CAN.write(0x01); //Enable
+  CAN.write(0xE8); //LSB: 1000
+  CAN.write(0x03); //MSB: 1000
+  CAN.write(0x8A); //LSB: 1120
+  CAN.write(0x04); //MSB: 1120
+  CAN.write(0x2C); //LSB: 200
+  CAN.write(0x01); //LSB: 200
+  CAN.write(0x00); //RESERVED
+  CAN.endPacket();
+  */
 }
 
