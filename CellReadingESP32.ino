@@ -4,7 +4,8 @@
 #include "bms_hardware.h"
 #include "Preferences.h"
 
-#include <CAN.h>
+#include <CAN.h> // MAKE SURE TO DOWNGRADE
+// Go to Boards Manager -> Downgrade ur esp32 by Espressif Systems to 2.0.17
 
 #define ENABLED 1
 #define DISABLED 0
@@ -94,6 +95,9 @@ const uint8_t MEASURE_AUX = DISABLED; //!< This is to ENABLED or DISABLED readin
 const uint8_t MEASURE_STAT = DISABLED; //!< This is to ENABLED or DISABLED reading the status registers in a continuous loop
 const uint8_t PRINT_PEC = DISABLED; //!< This is to ENABLED or DISABLED printing the PEC Error Count in a continuous loop
 
+// RX and TX for CAN
+const uint8_t RX_NEW_ESP = 22;
+const uint8_t TX_NEW_ESP = 21;
 
 cell_asic BMS_IC[TOTAL_IC];
 
@@ -138,6 +142,18 @@ void setup() {
   wakeup_sleep(TOTAL_IC);
   LTC6813_wrcfg(TOTAL_IC,BMS_IC);
   LTC6813_wrcfgb(TOTAL_IC,BMS_IC);
+
+
+ // start the CAN bus at 500 kbps
+  CAN.setPins(RX_NEW_ESP, TX_NEW_ESP);
+  if (!CAN.begin(500E3)) {
+    Serial.println("Starting CAN failed!");
+    while (1)
+      ;
+  }
+
+  Serial.println("CAN started lol");
+
 }
 
 void print_cells(){
@@ -216,16 +232,21 @@ void recieveData() {
     }
 
     Serial.println();
+
+
+
   }
+
+  
 }
 
 
 void loop() {
    
-  while(!CAN.begin(500E3)) {
-    Serial.println("Starting CAN failed!");
-    delay(100);
-  }
+  // while(!CAN.begin(500E3)) {
+  //   Serial.println("Starting CAN failed!");
+  //   delay(100);
+  // }
   // put your main code here, to run repeatedly:
   //log_i("made it to loop");
   Serial.println("made it to loop");
@@ -288,7 +309,7 @@ void loop() {
       Serial.println();
       Serial.println();
   }
-  /*
+  
   Serial.println("startig packet");
   CAN.beginPacket(0x2FF);
   CAN.write(0x01); //Enable
@@ -300,6 +321,6 @@ void loop() {
   CAN.write(0x01); //LSB: 200
   CAN.write(0x00); //RESERVED
   CAN.endPacket();
-  */
+  
 }
 
