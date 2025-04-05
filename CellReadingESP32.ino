@@ -146,7 +146,9 @@ void setup() {
 
  // start the CAN bus at 500 kbps
   CAN.setPins(RX_NEW_ESP, TX_NEW_ESP);
-  if (!CAN.begin(500E3)) {
+  //remember to set bitrate to 1000E3 in CAN.begin function if you want a bus speed of 500 kbps 
+  //(this is specific to the sandeepmistry library)
+  if (!CAN.begin(1000E3)) {
     Serial.println("Starting CAN failed!");
     while (1)
       ;
@@ -320,7 +322,8 @@ void loop() {
   CAN.write(0x2C); //LSB: 200
   CAN.write(0x01); //LSB: 200
   CAN.write(0x00); //RESERVED
-  CAN.endPacket();
+  if (CAN.endPacket()) {
+    Serial.println("packet end");
+  }
   
 }
-
