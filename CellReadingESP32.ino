@@ -222,10 +222,10 @@ void recieveData() {
 
 void loop() {
    
-  while(!CAN.begin(500E3)) {
-    Serial.println("Starting CAN failed!");
-    delay(100);
-  }
+  //while(!CAN.begin(500E3)) {
+   // Serial.println("Starting CAN failed!");
+    //delay(100);
+  //}
   // put your main code here, to run repeatedly:
   //log_i("made it to loop");
   Serial.println("made it to loop");
@@ -234,11 +234,12 @@ void loop() {
     recieveData();
   }
   wakeup_sleep(TOTAL_IC);
-  LTC6813_adcv(ADC_CONVERSION_MODE,ADC_DCP,CELL_CH_TO_CONVERT);
+  LTC6813_adcvax(ADC_CONVERSION_MODE,ADC_DCP);
   LTC6813_pollAdc();
   wakeup_idle(TOTAL_IC);
   uint8_t error = LTC6813_rdcv(0, TOTAL_IC,BMS_IC);
   check_error(error);
+  uint8_t error = LTC6813_rdaux(0, TOTAL_IC,BMS_IC);
   iter=(iter+1)%4;
   float sum_cells=0;
   float min_cell=100;
@@ -253,6 +254,11 @@ void loop() {
       if(cell_val<3){
         preferences.putString("err", "undervolt");
         err_info="undervolt";
+        err=true;
+      }
+      if(BMS_IC[j].aux.a_codes[0]>1){
+        preferences.putString("err", "overtemp");
+        err_info="overtemp";
         err=true;
       }
       sum_cells+=cell_val;
