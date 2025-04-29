@@ -4,7 +4,7 @@
 #include "bms_hardware.h"
 #include "Preferences.h"
 
-#include <CAN.h>
+// #include <CAN.h>
 
 #define ENABLED 1
 #define DISABLED 0
@@ -65,7 +65,7 @@ const float PERCENTAGE_CAPACITY[]={
 const uint8_t TOTAL_IC = 4;//!< Number of ICs in the daisy chain
 
 uint8_t iter=0;
-bool err=false;
+uint8_t err=0;
 
 /********************************************************************
  ADC Command Configurations. See LTC681x.h for options
@@ -83,6 +83,7 @@ const uint8_t SEL_REG_B = REG_2; //!< Register Selection
 const uint16_t MEASUREMENT_LOOP_TIME = 500; //!< Loop Time in milliseconds(ms)
 
 //Under Voltage and Over Voltage Thresholds
+//const uint16_t OV_THRESHOLD = 41000; //!< Over voltage threshold ADC Code. LSB = 0.0001 ---(4.1V)
 const uint16_t OV_THRESHOLD = 41000; //!< Over voltage threshold ADC Code. LSB = 0.0001 ---(4.1V)
 const uint16_t UV_THRESHOLD = 30000; //!< Under voltage threshold ADC Code. LSB = 0.0001 ---(3V)
 
@@ -182,42 +183,42 @@ float calculate_percentage(float cell_voltage){
   return PERCENTAGE_CAPACITY[index_low]+(cell_voltage-VOLTAGES[index_low])*(PERCENTAGE_CAPACITY[index_low-1]-PERCENTAGE_CAPACITY[index_low])/(VOLTAGES[index_low-1]-VOLTAGES[index_low]);
 }
 
-void recieveData() {
-  // try to parse packet
-  int packetSize = CAN.parsePacket();
+// void recieveData() {
+//   // try to parse packet
+//   int packetSize = CAN.parsePacket();
 
-  if (packetSize) {
-    // received a packet
-    Serial.print("Received ");
+//   if (packetSize) {
+//     // received a packet
+//     Serial.print("Received ");
 
-    if (CAN.packetExtended()) {
-      Serial.print("extended ");
-    }
+//     if (CAN.packetExtended()) {
+//       Serial.print("extended ");
+//     }
 
-    if (CAN.packetRtr()) {
-      // Remote transmission request, packet contains no data
-      Serial.print("RTR ");
-    }
+//     if (CAN.packetRtr()) {
+//       // Remote transmission request, packet contains no data
+//       Serial.print("RTR ");
+//     }
 
-    Serial.print("packet with id 0x");
-    Serial.print(CAN.packetId(), HEX);
-    if (CAN.packetRtr()) {
-      Serial.print(" and requested length ");
-      Serial.println(CAN.packetDlc());
-    } else {
-      Serial.print(" and length ");
-      Serial.println(packetSize);
+//     Serial.print("packet with id 0x");
+//     Serial.print(CAN.packetId(), HEX);
+//     if (CAN.packetRtr()) {
+//       Serial.print(" and requested length ");
+//       Serial.println(CAN.packetDlc());
+//     } else {
+//       Serial.print(" and length ");
+//       Serial.println(packetSize);
 
-      // only print packet data for non-RTR packets
-      while (CAN.available()) {
-        Serial.print(CAN.read(), HEX);
-      }
-      Serial.println();
-    }
+//       // only print packet data for non-RTR packets
+//       while (CAN.available()) {
+//         Serial.print(CAN.read(), HEX);
+//       }
+//       Serial.println();
+//     }
 
-    Serial.println();
-  }
-}
+//     Serial.println();
+//   }
+// }
 
 
 void loop() {
@@ -229,43 +230,54 @@ void loop() {
   // put your main code here, to run repeatedly:
   //log_i("made it to loop");
   Serial.println("made it to loop");
-  uint32_t time=millis();
-  while((millis()-time)<250) {
-    recieveData();
-  }
+  // uint32_t time=millis();
+  // while((millis()-time)<250) {
+  //   recieveData();
+  // }
   wakeup_sleep(TOTAL_IC);
   LTC6813_adcvax(ADC_CONVERSION_MODE,ADC_DCP);
   LTC6813_pollAdc();
   wakeup_idle(TOTAL_IC);
   uint8_t error = LTC6813_rdcv(0, TOTAL_IC,BMS_IC);
   check_error(error);
-  uint8_t error = LTC6813_rdaux(0, TOTAL_IC,BMS_IC);
+  error = LTC6813_rdaux(0, TOTAL_IC,BMS_IC);
+  check_error(error);
   iter=(iter+1)%4;
   float sum_cells=0;
   float min_cell=100;
+  bool trip=false;
   for(uint8_t j=0; j<4; ++j){
+    if(iter==0){
+      Serial.print("Aux: ");
+      Serial.println(BMS_IC[j].aux.a_codes[0]);
+    }
+    if(BMS_IC[j].aux.a_codes[0]>1650){
+      preferences.putString("err", "overtemp");
+      err_info="overtemp";
+      trip=true;
+    }
     for(uint8_t k=0; k<7; ++k){
       float cell_val=BMS_IC[j].cells.c_codes[k]*0.0001;
       if(cell_val>4.15){
         preferences.putString("err", "overvolt");
         err_info="overvolt";
-        err=true;
+        trip=true;
       }
       if(cell_val<3){
         preferences.putString("err", "undervolt");
         err_info="undervolt";
-        err=true;
-      }
-      if(BMS_IC[j].aux.a_codes[0]>1){
-        preferences.putString("err", "overtemp");
-        err_info="overtemp";
-        err=true;
+        trip=true;
       }
       sum_cells+=cell_val;
       min_cell=min(min_cell, cell_val);
     }
   }
-  if(err){
+  if(trip){
+    err+=1;
+  } else if (err>0){
+    err-=1;
+  }
+  if(err>4){
       digitalWrite(27, LOW);
   } else {
     digitalWrite(27, HIGH);
