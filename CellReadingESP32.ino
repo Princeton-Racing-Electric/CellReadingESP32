@@ -3,6 +3,9 @@
 #include "esp_log.h"
 #include "bms_hardware.h"
 #include "Preferences.h"
+#include "driver/can.h"
+#include <Wire.h>
+#include <stdio.h>
 
 // #include <CAN.h>
 
@@ -12,6 +15,10 @@
 #define DATALOG_DISABLED 0
 #define PWM 1
 #define SCTL 2
+
+can_general_config_t general_config = CAN_GENERAL_CONFIG_DEFAULT(GPIO_NUM_5, GPIO_NUM_4, CAN_MODE_NORMAL);
+can_timing_config_t timing_config = CAN_TIMING_CONFIG_500KBITS();
+can_filter_config_t filter_config = CAN_FILTER_CONFIG_ACCEPT_ALL();
 
 const float VOLTAGES[]={
   4.087373015,
@@ -139,6 +146,39 @@ void setup() {
   wakeup_sleep(TOTAL_IC);
   LTC6813_wrcfg(TOTAL_IC,BMS_IC);
   LTC6813_wrcfgb(TOTAL_IC,BMS_IC);
+
+  Serial.println("Accumulator Controller");
+   // Install CAN driver
+  if (can_driver_install(&general_config, &timing_config, &filter_config) == ESP_OK) {
+      Serial.println("CAN driver installed");
+  } else {
+      Serial.println("Failed to install CAN driver");
+      return;
+  }
+// Start the CAN driver
+  if (can_start() == ESP_OK) {
+      Serial.println("CAN driver started");
+  } else {
+      Serial.println("Failed to start CAN driver");
+      return;
+  }
+}
+
+void can_transmit_message(unsigned char data[], int id,char len) {
+  can_message_t message;
+  message.identifier = id;
+  message.flags = CAN_MSG_FLAG_NONE;
+  message.data_length_code = len;
+  for(int i = 0;i<len;i++) {
+   //  Serial.println(data[i]);
+    message.data[i] = data[i];
+  }
+  //Queue message for transmission
+  if (can_transmit(&message, pdMS_TO_TICKS(1000)) == ESP_OK) {
+     //  Serial.print("Message queued for transmission\n");
+  } else {
+      Serial.print("Failed to queue message for transmission\n");
+  }
 }
 
 void print_cells(){
@@ -220,8 +260,9 @@ float calculate_percentage(float cell_voltage){
 //   }
 // }
 
-
 void loop() {
+  
+  int32_t oldTime = millis();
    
   //while(!CAN.begin(500E3)) {
    // Serial.println("Starting CAN failed!");
@@ -289,6 +330,9 @@ void loop() {
       float mean_capacity=calculate_percentage(sum_cells/28);
       float actual_capacity=calculate_percentage(min_cell);
       float max_cell_capacity=calculate_percentage(max_cell);
+      uint16_t mean_capacity_INT = (uint16_t)(mean_capacity * 256);
+      uint16_t actual_capacity_INT = (uint16_t)(actual_capacity * 256);
+      uint16_t max_cell_capacity_INT = (uint16_t)(max_cell_capacity * 256);
       Serial.print("Min Cell: ");
       Serial.print(min_cell);
       Serial.print(". Actual Capacity: ");
@@ -310,7 +354,23 @@ void loop() {
       //Serial.println();
       //Serial.println();
       Serial.println();
+
+      // SEND OVER CAN
+      // Prepare CAN data payload (6 bytes total)
+      uint8_t capacity_data[6] = {
+        (mean_capacity_INT >> 8) & 0xFF, mean_capacity_INT & 0xFF,
+        (actual_capacity_INT >> 8) & 0xFF, actual_capacity_INT & 0xFF,
+        (max_cell_capacity_INT >> 8) & 0xFF, max_cell_capacity_INT & 0xFF
+      };
+
+      can_transmit_message(capacity_data, 0x300, 6);
   }
+  int32_t newTime = millis()
+  if (newTime - oldTime >= 500) {
+    return;
+  }
+
+  delay(500 - (newTime - oldTime))
   /*
   Serial.println("startig packet");
   CAN.beginPacket(0x2FF);
