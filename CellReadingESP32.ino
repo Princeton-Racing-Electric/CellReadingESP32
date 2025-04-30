@@ -178,8 +178,8 @@ float calculate_percentage(float cell_voltage){
       break;
     }
   }
-  Serial.print("index: ");
-  Serial.println(index_low);
+  //Serial.print("index: ");
+  //Serial.println(index_low);
   return PERCENTAGE_CAPACITY[index_low]+(cell_voltage-VOLTAGES[index_low])*(PERCENTAGE_CAPACITY[index_low-1]-PERCENTAGE_CAPACITY[index_low])/(VOLTAGES[index_low-1]-VOLTAGES[index_low]);
 }
 
@@ -229,7 +229,7 @@ void loop() {
   //}
   // put your main code here, to run repeatedly:
   //log_i("made it to loop");
-  Serial.println("made it to loop");
+  //Serial.println("made it to loop");
   // uint32_t time=millis();
   // while((millis()-time)<250) {
   //   recieveData();
@@ -245,11 +245,12 @@ void loop() {
   iter=(iter+1)%4;
   float sum_cells=0;
   float min_cell=100;
+  float max_cell=0;
   bool trip=false;
   for(uint8_t j=0; j<4; ++j){
     if(iter==0){
-      Serial.print("Aux: ");
-      Serial.println(BMS_IC[j].aux.a_codes[0]);
+      //Serial.print("Aux: ");
+      //Serial.println(BMS_IC[j].aux.a_codes[0]);
     }
     if(BMS_IC[j].aux.a_codes[0]>1650){
       preferences.putString("err", "overtemp");
@@ -270,6 +271,7 @@ void loop() {
       }
       sum_cells+=cell_val;
       min_cell=min(min_cell, cell_val);
+      max_cell=max(max_cell, cell_val);
     }
   }
   if(trip){
@@ -286,12 +288,15 @@ void loop() {
       print_cells();
       float mean_capacity=calculate_percentage(sum_cells/28);
       float actual_capacity=calculate_percentage(min_cell);
+      float max_cell_capacity=calculate_percentage(max_cell);
       Serial.print("Min Cell: ");
       Serial.print(min_cell);
       Serial.print(". Actual Capacity: ");
       Serial.print(actual_capacity);
       Serial.print(", Mean Capacity: ");
       Serial.print(mean_capacity);
+      Serial.print(", Max Capacity: ");
+      Serial.print(max_cell_capacity);
       Serial.print(", err: ");
       Serial.print(err);
       if(err==true){
@@ -302,8 +307,8 @@ void loop() {
       char * value;
       preferences.getString("err", value, 10);
       Serial.print(value);
-      Serial.println();
-      Serial.println();
+      //Serial.println();
+      //Serial.println();
       Serial.println();
   }
   /*
